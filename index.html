@@ -1,0 +1,543 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Різак — шортси з довгого відео</title>
+<style>
+  :root { --paper:#E9EDF1; --panel:#fff; --ink:#17222D; --muted:#596A7A; --line:#C9D2DB; --cut:#E5482D; --cut-soft:#FBE3DD; color-scheme: light; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--paper); color:var(--ink); font:16px/1.5 'Onest', system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif; }
+  button, input, select, textarea { font:inherit; color:inherit; }
+  :focus-visible { outline:3px solid var(--ink); outline-offset:2px; }
+  .top { max-width:1180px; margin:0 auto; padding:28px 20px 4px; }
+  .top h1 { margin:0; font-size:clamp(34px,6vw,54px); line-height:1; letter-spacing:-.03em; font-weight:700; }
+  .top p { margin:10px 0 0; max-width:58ch; color:var(--muted); }
+  .layout { max-width:1180px; margin:0 auto; padding:20px; display:grid; gap:20px; grid-template-columns:minmax(0,1fr) 330px; align-items:start; }
+  @media (max-width:900px){ .layout{grid-template-columns:1fr;} .panel{order:-1;position:static!important;} }
+  .stage { display:grid; gap:16px; min-width:0; }
+  .drop { display:block; border:2px dashed var(--line); border-radius:10px; background:var(--panel); padding:52px 24px; text-align:center; cursor:pointer; }
+  .drop:hover,.drop.over { border-color:var(--cut); }
+  .drop strong { display:block; font-size:22px; letter-spacing:-.01em; }
+  .drop span { color:var(--muted); }
+  .drop input { display:none; }
+  .source { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px; }
+  .source video { width:100%; max-height:48vh; background:#000; border-radius:6px; display:block; }
+  .fileline { display:flex; justify-content:space-between; gap:12px; margin-top:10px; font-size:14px; color:var(--muted); }
+  .fileline b { color:var(--ink); font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .linkbtn { background:none; border:0; padding:0; text-decoration:underline; cursor:pointer; white-space:nowrap; }
+  .timeline { position:relative; height:44px; margin-top:12px; border-radius:6px; border:1px solid var(--line); overflow:hidden;
+    background:repeating-linear-gradient(90deg,#DCE3E9 0 1px,transparent 1px 5%),#EEF2F5; }
+  .mark { position:absolute; top:0; bottom:0; background:var(--cut); opacity:.88; border:0; padding:0; cursor:pointer; color:#fff; font-size:12px; font-weight:700; min-width:6px; }
+  .mark:hover,.mark.on { opacity:1; box-shadow:inset 0 0 0 2px var(--ink); }
+  .head { position:absolute; top:0; bottom:0; width:2px; background:var(--ink); pointer-events:none; left:0; }
+  .tl-label { display:flex; justify-content:space-between; gap:8px; font-size:12px; color:var(--muted); margin-top:4px; }
+  .progress { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px; }
+  .progress .row { display:flex; justify-content:space-between; gap:12px; font-weight:500; }
+  .bar { height:8px; background:#E3E8ED; border-radius:99px; margin-top:10px; overflow:hidden; }
+  .bar i { display:block; height:100%; width:0; background:var(--cut); transition:width .3s; }
+  .note { font-size:13px; color:var(--muted); margin:8px 0 0; }
+  .error { background:var(--cut-soft); border:1px solid var(--cut); border-radius:10px; padding:14px 16px; white-space:pre-wrap; }
+  .error b { display:block; }
+  .clips { display:grid; gap:16px; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); }
+  .clip { background:var(--panel); border:1px solid var(--line); border-radius:10px; overflow:hidden; display:flex; flex-direction:column; }
+  .clip.on { border-color:var(--cut); box-shadow:0 0 0 2px var(--cut); }
+  .clip video { width:100%; aspect-ratio:9/16; background:#000; display:block; object-fit:contain; }
+  .clip video.wide { aspect-ratio:16/9; }
+  .clip .body { padding:12px 14px 14px; display:flex; flex-direction:column; gap:6px; flex:1; }
+  .clip h3 { margin:0; font-size:17px; line-height:1.25; }
+  .meta { font-size:13px; color:var(--muted); font-variant-numeric:tabular-nums; }
+  .why { font-size:14px; margin:0; }
+  .score { display:inline-block; background:var(--ink); color:#fff; border-radius:4px; padding:0 6px; font-weight:600; margin-right:6px; }
+  .btn { display:inline-flex; align-items:center; justify-content:center; border:0; border-radius:8px; padding:11px 16px; font-weight:600; cursor:pointer; text-decoration:none; }
+  .btn.primary { background:var(--ink); color:#fff; }
+  .btn.ghost { background:#EEF2F5; color:var(--ink); margin-top:auto; }
+  .btn:disabled { opacity:.45; cursor:not-allowed; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:18px; position:sticky; top:16px; }
+  .panel h2 { margin:0 0 14px; font-size:18px; }
+  .field { display:grid; gap:6px; margin-bottom:14px; }
+  .field > label,.field > .lbl { font-size:14px; font-weight:600; }
+  .hint { font-size:12.5px; color:var(--muted); font-weight:400; }
+  input[type=number],input[type=password],select,textarea { width:100%; padding:9px 10px; border:1px solid var(--line); border-radius:8px; background:#fff; }
+  textarea { resize:vertical; min-height:60px; }
+  .two { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .switch { display:flex; align-items:center; gap:10px; cursor:pointer; font-weight:600; font-size:14px; }
+  .switch input { width:18px; height:18px; accent-color:var(--cut); }
+  fieldset { border:0; padding:0; margin:0 0 14px; display:grid; gap:14px; }
+  fieldset[disabled] { opacity:.45; }
+  .sep { border:0; border-top:1px solid var(--line); margin:16px 0; }
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>Різак</h1>
+  <p>Завантажте довге відео. Gemini знайде моменти для шортсів, а браузер наріже їх і за бажанням додасть субтитри. Нічого не потрібно встановлювати.</p>
+</header>
+
+<main class="layout">
+  <section class="stage" aria-live="polite">
+    <label class="drop" id="drop" tabindex="0">
+      <input type="file" id="file" accept="video/*">
+      <strong>Перетягніть відео сюди</strong>
+      <span>або натисніть, щоб вибрати файл (mp4, mov, webm)</span>
+    </label>
+
+    <div class="source" id="source" hidden>
+      <video id="srcVideo" controls playsinline></video>
+      <div class="timeline" id="timeline"><div class="head" id="head"></div></div>
+      <div class="tl-label"><span>0:00</span><span id="tlHint">Червоні відрізки з'являться після аналізу</span><span id="tlEnd">0:00</span></div>
+      <div class="fileline"><b id="fname"></b><span id="fsize"></span><button class="linkbtn" id="change" type="button">Змінити файл</button></div>
+    </div>
+
+    <div class="progress" id="progress" hidden>
+      <div class="row"><span id="stage">Починаю…</span><span id="pct">0%</span></div>
+      <div class="bar"><i id="barfill"></i></div>
+      <p class="note" id="rnote" hidden>Монтаж іде в реальному часі: не згортайте і не закривайте цю вкладку.</p>
+    </div>
+
+    <div class="error" id="error" hidden><b>Не вийшло</b><span id="errtext"></span></div>
+    <div class="clips" id="clips"></div>
+  </section>
+
+  <aside class="panel">
+    <h2>Налаштування</h2>
+    <form id="form">
+      <div class="field">
+        <label for="count">Кількість шортсів</label>
+        <input type="number" id="count" min="1" max="15" placeholder="Авто">
+        <span class="hint">Порожнє поле — Gemini вирішить сам</span>
+      </div>
+      <div class="field">
+        <span class="lbl">Тривалість, с</span>
+        <div class="two">
+          <input type="number" id="minLen" min="10" max="170" value="20" aria-label="Мінімум секунд">
+          <input type="number" id="maxLen" min="15" max="180" value="60" aria-label="Максимум секунд">
+        </div>
+      </div>
+      <div class="field">
+        <label for="layout">Формат кадру</label>
+        <select id="layout">
+          <option value="blur">Вертикальний 9:16, розмите тло</option>
+          <option value="crop">Вертикальний 9:16, обрізка по центру</option>
+          <option value="original">Як в оригіналі</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="quality">Якість</label>
+        <select id="quality">
+          <option value="720">720p (швидше)</option>
+          <option value="1080">1080p</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="notes">Що шукати <span class="hint">(необов'язково)</span></label>
+        <textarea id="notes" maxlength="500" placeholder="Наприклад: смішні моменти, поради, емоційні історії"></textarea>
+      </div>
+      <hr class="sep">
+      <div class="field"><label class="switch"><input type="checkbox" id="subs" checked> Додати субтитри</label></div>
+      <fieldset id="subOpts">
+        <div class="field">
+          <label for="subLang">Мова субтитрів</label>
+          <select id="subLang">
+            <option value="original">Як у відео</option>
+            <option value="uk">Переклад українською</option>
+            <option value="en">Переклад англійською</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="subStyle">Стиль</label>
+          <select id="subStyle">
+            <option value="classic">Білі з чорною обводкою</option>
+            <option value="yellow">Жовті з чорною обводкою</option>
+            <option value="box">Білі на темній плашці</option>
+          </select>
+        </div>
+      </fieldset>
+      <hr class="sep">
+      <div class="field">
+        <label for="model">Модель</label>
+        <select id="model">
+          <option value="gemini-3.6-flash">Gemini 3.6 Flash</option>
+          <option value="gemini-3.8-flash">Gemini 3.8 Flash</option>
+          <option value="gemini-3.5-flash-lite">Gemini 3.5 Flash-Lite</option>
+          <option value="gemini-4-argon">Gemini 4 Argon</option>
+        </select>
+        <span class="hint">3.5 Flash застаріла, Google перенаправляє її на 3.6.</span>
+      </div>
+      <div class="field">
+        <label for="apiKey">Gemini API-ключ</label>
+        <input type="password" id="apiKey" autocomplete="off" placeholder="AIza…">
+        <span class="hint">Ключ іде лише напряму в Google і ніде не зберігається.</span>
+      </div>
+      <button class="btn primary" id="go" type="submit" style="width:100%" disabled>Нарізати шортси</button>
+    </form>
+  </aside>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const API = 'https://generativelanguage.googleapis.com';
+let file = null, srcUrl = null, sourceDur = 0, running = false, actx = null;
+
+const fmt = (s) => { s = Math.max(0, Math.round(s)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+const size = (b) => b > 1e9 ? (b / 1e9).toFixed(1) + ' ГБ' : Math.round(b / 1e6) + ' МБ';
+const slug = (t) => t.replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '').slice(0, 40) || 'short';
+const clamp = (n, a, b) => Math.min(b, Math.max(a, n));
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+function el(tag, cls, text) { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; }
+
+/* ---------- файл ---------- */
+function setFile(f) {
+  if (!f || running) return;
+  file = f;
+  if (srcUrl) URL.revokeObjectURL(srcUrl);
+  srcUrl = URL.createObjectURL(f);
+  $('srcVideo').src = srcUrl;
+  $('fname').textContent = f.name; $('fsize').textContent = size(f.size);
+  $('drop').hidden = true; $('source').hidden = false; $('go').disabled = false;
+  resetResults();
+}
+function resetResults() {
+  $('clips').innerHTML = ''; $('error').hidden = true; $('progress').hidden = true;
+  $('timeline').querySelectorAll('.mark').forEach(m => m.remove());
+  $('tlHint').textContent = "Червоні відрізки з'являться після аналізу";
+}
+$('file').addEventListener('change', e => setFile(e.target.files[0]));
+$('change').addEventListener('click', () => { $('file').value = ''; $('file').click(); });
+$('drop').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('file').click(); } });
+['dragenter','dragover'].forEach(ev => $('drop').addEventListener(ev, e => { e.preventDefault(); $('drop').classList.add('over'); }));
+['dragleave','drop'].forEach(ev => $('drop').addEventListener(ev, e => { e.preventDefault(); $('drop').classList.remove('over'); }));
+$('drop').addEventListener('drop', e => setFile(e.dataTransfer.files[0]));
+$('subs').addEventListener('change', () => { $('subOpts').disabled = !$('subs').checked; });
+$('srcVideo').addEventListener('loadedmetadata', () => { $('tlEnd').textContent = fmt($('srcVideo').duration); });
+$('srcVideo').addEventListener('timeupdate', () => { const d = $('srcVideo').duration; if (d) $('head').style.left = ($('srcVideo').currentTime / d * 100) + '%'; });
+$('timeline').addEventListener('click', e => {
+  if (e.target.classList.contains('mark')) return;
+  const r = $('timeline').getBoundingClientRect(), d = $('srcVideo').duration;
+  if (d) $('srcVideo').currentTime = (e.clientX - r.left) / r.width * d;
+});
+
+function showProgress(text, pct, rendering) {
+  $('progress').hidden = false; $('stage').textContent = text;
+  $('pct').textContent = Math.round(pct) + '%'; $('barfill').style.width = pct + '%'; $('rnote').hidden = !rendering;
+}
+function fail(msg) { $('progress').hidden = true; $('error').hidden = false; $('errtext').textContent = msg; }
+
+/* ---------- Gemini ---------- */
+function friendly(e) {
+  const m = String(e?.message || e);
+  if (/Failed to fetch|NetworkError|Load failed/i.test(m))
+    return 'Немає зв\'язку з Google (generativelanguage.googleapis.com). Якщо ви відкрили це всередині чату, пісочниця може блокувати зовнішні запити. Збережіть файл rizak.html і відкрийте його у браузері як звичайну сторінку.';
+  if (/API key not valid|API_KEY_INVALID|PERMISSION_DENIED|401|403/i.test(m)) return 'Gemini відхилив API-ключ. Перевірте ключ і доступ до моделі.';
+  if (/NOT_FOUND|404/i.test(m)) return 'Такої моделі немає або вона недоступна для вашого ключа. Оберіть іншу.';
+  if (/RESOURCE_EXHAUSTED|429/i.test(m)) return 'Вичерпано ліміт запитів Gemini. Зачекайте трохи або перевірте квоти.';
+  return m.slice(0, 600);
+}
+
+function uploadXhr(url, headers, body, onp) {
+  return new Promise((resolve, reject) => {
+    const x = new XMLHttpRequest(); x.open('POST', url);
+    for (const [k, v] of Object.entries(headers)) x.setRequestHeader(k, v);
+    x.upload.onprogress = e => e.lengthComputable && onp(e.loaded / e.total);
+    x.onload = () => x.status < 300 ? resolve(x.responseText) : reject(new Error(x.status + ' ' + x.responseText));
+    x.onerror = () => reject(new Error('Failed to fetch'));
+    x.send(body);
+  });
+}
+
+async function uploadVideo(key, onp) {
+  const mime = file.type || 'video/mp4';
+  const start = await fetch(API + '/upload/v1beta/files', {
+    method: 'POST',
+    headers: { 'x-goog-api-key': key, 'X-Goog-Upload-Protocol': 'resumable', 'X-Goog-Upload-Command': 'start',
+      'X-Goog-Upload-Header-Content-Length': String(file.size), 'X-Goog-Upload-Header-Content-Type': mime, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ file: { display_name: file.name } })
+  });
+  if (!start.ok) throw new Error(start.status + ' ' + await start.text());
+  const url = start.headers.get('x-goog-upload-url');
+  if (!url) throw new Error('Google не повернув адресу завантаження (обмеження CORS). Спробуйте файл до 50 МБ.');
+  const txt = await uploadXhr(url, { 'X-Goog-Upload-Offset': '0', 'X-Goog-Upload-Command': 'upload, finalize' }, file, onp);
+  let f = JSON.parse(txt).file;
+  const t0 = Date.now();
+  while (f.state && f.state !== 'ACTIVE') {
+    if (f.state === 'FAILED') throw new Error('Gemini не зміг обробити відео.');
+    if (Date.now() - t0 > 10 * 60 * 1000) throw new Error('Gemini занадто довго обробляє відео.');
+    await sleep(2500);
+    const r = await fetch(`${API}/v1beta/${f.name}`, { headers: { 'x-goog-api-key': key } });
+    if (!r.ok) throw new Error(r.status + ' ' + await r.text());
+    f = await r.json();
+  }
+  return { file_data: { mime_type: f.mimeType || mime, file_uri: f.uri } };
+}
+
+async function inlineVideo() {
+  const b64 = await new Promise((res, rej) => {
+    const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1]); r.onerror = () => rej(new Error('Не вдалося прочитати файл.')); r.readAsDataURL(file);
+  });
+  return { inline_data: { mime_type: file.type || 'video/mp4', data: b64 } };
+}
+
+function buildPrompt(o) {
+  const lang = o.subLang === 'uk' ? 'translate the speech into Ukrainian' : o.subLang === 'en' ? 'translate the speech into English' : 'the same language as spoken';
+  return `You are an expert short-form video editor (TikTok, YouTube Shorts, Instagram Reels). Watch and listen to the whole video and pick the moments that work best as standalone shorts.
+
+Rules:
+- Each short must be self-contained, with a strong hook within the first 3 seconds and an ending on a completed thought or punchline.
+- Never start or end in the middle of a sentence or a word; align with natural pauses or scene changes.
+- Length of each short: between ${o.minLen} and ${o.maxLen} seconds. Shorts must not overlap.
+- ${o.count ? `Return ${o.count} shorts (fewer only if the video clearly lacks that many good moments).` : 'Choose the number yourself: only genuinely strong moments, roughly one per 3-5 minutes of video, at most 10.'}
+- "score": 0-100 estimate of viral potential.
+- All timestamps are numbers of seconds from the START OF THE WHOLE VIDEO (decimals allowed, precision about 0.1 s).
+- "title", "hook" and "reason" must be written in Ukrainian. title: catchy, up to 60 characters. hook: what is said or shown in the first seconds. reason: one sentence on why it works.
+${o.notes ? `- Extra wishes from the user: ${o.notes}\n` : ''}${o.subtitles ? `- For each short also return "cues": subtitles synced precisely to the speech. Language: ${lang}. Each cue is 2-6 words, at most 42 characters, 0.8-3.5 seconds long, in order, not overlapping, timestamps in seconds from the start of the whole video. No sound descriptions or speaker labels. Empty array if there is no speech.
+` : ''}
+Return only JSON: {"clips":[{"start":number,"end":number,"title":string,"hook":string,"reason":string,"score":number${o.subtitles ? ',"cues":[{"start":number,"end":number,"text":string}]' : ''}}]}`;
+}
+
+function toSec(v) {
+  if (typeof v === 'number') return v;
+  if (typeof v !== 'string') return NaN;
+  const s = v.trim().replace(',', '.');
+  if (/^\d+(\.\d+)?$/.test(s)) return parseFloat(s);
+  const p = s.split(':').map(parseFloat);
+  return p.some(Number.isNaN) ? NaN : p.reduce((a, x) => a * 60 + x, 0);
+}
+
+async function analyze(key, o, filePart) {
+  const body = {
+    contents: [{ parts: [filePart, { text: buildPrompt(o) }] }],
+    generationConfig: { responseMimeType: 'application/json', temperature: 0.4 }
+  };
+  let res;
+  for (let i = 0; i < 3; i++) {
+    res = await fetch(`${API}/v1beta/models/${o.model}:generateContent`, {
+      method: 'POST', headers: { 'x-goog-api-key': key, 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+    });
+    if (res.ok) break;
+    const t = await res.text();
+    if (![429, 500, 503].includes(res.status) || i === 2) throw new Error(res.status + ' ' + t);
+    await sleep(3000 * 2 ** i);
+  }
+  const data = await res.json();
+  let text = (data.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('').trim();
+  text = text.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
+  const i = text.search(/[{[]/); if (i > 0) text = text.slice(i);
+  if (!text) throw new Error('Gemini повернув порожню відповідь' + (data.promptFeedback?.blockReason ? ' (' + data.promptFeedback.blockReason + ')' : '') + '.');
+  const j = JSON.parse(text);
+  return normalize(j.clips ?? j, o);
+}
+
+function normalize(list, o) {
+  if (!Array.isArray(list)) return [];
+  let items = list.map(x => ({
+    start: toSec(x.start), end: toSec(x.end), title: String(x.title || 'Без назви').slice(0, 120),
+    hook: String(x.hook || '').slice(0, 300), reason: String(x.reason || '').slice(0, 400),
+    score: clamp(Number(x.score) || 50, 0, 100), rawCues: Array.isArray(x.cues) ? x.cues : []
+  })).filter(x => Number.isFinite(x.start) && Number.isFinite(x.end) && x.end > x.start && x.start < sourceDur - 3);
+  for (const c of items) {
+    c.start = Math.max(0, c.start); c.end = Math.min(sourceDur, c.end);
+    if (c.end - c.start > o.maxLen) c.end = c.start + o.maxLen;
+    if (c.end - c.start < o.minLen) c.end = Math.min(sourceDur, c.start + o.minLen);
+    if (c.end - c.start < o.minLen) c.start = Math.max(0, c.end - o.minLen);
+    c.start = Math.round(c.start * 10) / 10; c.end = Math.round(c.end * 10) / 10;
+    c.duration = c.end - c.start;
+    c.cues = c.rawCues.map(q => ({ start: toSec(q.start) - c.start, end: toSec(q.end) - c.start, text: String(q.text || '').trim() }))
+      .filter(q => q.text && Number.isFinite(q.start) && Number.isFinite(q.end))
+      .sort((a, b) => a.start - b.start);
+    for (let i = 0; i < c.cues.length; i++) {
+      const q = c.cues[i], n = c.cues[i + 1];
+      q.start = clamp(q.start, 0, c.duration); q.end = clamp(q.end, q.start + 0.3, c.duration);
+      if (n && q.end > n.start) q.end = Math.max(q.start + 0.2, n.start - 0.02);
+    }
+    c.cues = c.cues.filter(q => q.end > q.start);
+  }
+  items = items.filter(c => c.duration >= 5).sort((a, b) => b.score - a.score);
+  const kept = [];
+  for (const c of items) if (kept.every(k => c.end <= k.start || c.start >= k.end)) kept.push(c);
+  return kept.slice(0, o.count || 15);
+}
+
+/* ---------- монтаж у браузері ---------- */
+function pickMime() {
+  return ['video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm']
+    .find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t));
+}
+
+function wrapLines(ctx, text, maxW) {
+  const words = text.split(/\s+/); const lines = []; let cur = '';
+  for (const w of words) {
+    const t = cur ? cur + ' ' + w : w;
+    if (cur && ctx.measureText(t).width > maxW) { lines.push(cur); cur = w; } else cur = t;
+  }
+  if (cur) lines.push(cur);
+  return lines.length > 2 ? [lines[0], lines.slice(1).join(' ')] : lines;
+}
+
+function drawSubtitle(ctx, W, H, text, style, vertical) {
+  const fs = Math.round(W * (vertical ? 0.075 : 0.045));
+  ctx.font = `700 ${fs}px Onest, Arial, sans-serif`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
+  const lines = wrapLines(ctx, text, W * 0.86);
+  const lh = fs * 1.25;
+  const yBottom = vertical ? H * 0.82 : H * 0.92;
+  const y0 = yBottom - lh * lines.length + lh / 2;
+  lines.forEach((ln, i) => {
+    const y = y0 + i * lh;
+    if (style === 'box') {
+      const w = ctx.measureText(ln).width + fs * 0.7;
+      ctx.fillStyle = 'rgba(16,16,16,.72)';
+      ctx.beginPath(); ctx.roundRect ? ctx.roundRect(W / 2 - w / 2, y - lh / 2, w, lh, fs * 0.2) : ctx.rect(W / 2 - w / 2, y - lh / 2, w, lh); ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.fillText(ln, W / 2, y);
+    } else {
+      ctx.lineWidth = fs * 0.16; ctx.strokeStyle = '#000'; ctx.strokeText(ln, W / 2, y);
+      ctx.fillStyle = style === 'yellow' ? '#FFE500' : '#fff'; ctx.fillText(ln, W / 2, y);
+    }
+  });
+}
+
+async function renderClip(c, o, onp) {
+  const vid = document.createElement('video');
+  vid.src = srcUrl; vid.playsInline = true; vid.preload = 'auto';
+  await new Promise((res, rej) => { vid.onloadedmetadata = res; vid.onerror = () => rej(new Error('Браузер не може відтворити це відео. Спробуйте mp4 (H.264).')); });
+
+  const vertical = o.layout !== 'original';
+  let W, H;
+  if (vertical) { H = o.quality === '1080' ? 1920 : 1280; W = H * 9 / 16; }
+  else {
+    const k = Math.min(1, (o.quality === '1080' ? 1920 : 1280) / Math.max(vid.videoWidth, vid.videoHeight));
+    W = Math.round(vid.videoWidth * k / 2) * 2; H = Math.round(vid.videoHeight * k / 2) * 2;
+  }
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const ctx = cv.getContext('2d');
+  const small = document.createElement('canvas'); small.width = 36; small.height = Math.round(36 * H / W);
+  const sctx = small.getContext('2d');
+
+  vid.currentTime = c.start;
+  await new Promise(r => { vid.onseeked = r; });
+
+  actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+  if (actx.state === 'suspended') await actx.resume();
+  const asrc = actx.createMediaElementSource(vid);
+  const dest = actx.createMediaStreamDestination();
+  asrc.connect(dest);
+
+  const stream = cv.captureStream(30);
+  dest.stream.getAudioTracks().forEach(t => stream.addTrack(t));
+  const mime = pickMime();
+  if (!mime) throw new Error('Цей браузер не вміє записувати відео. Скористайтеся Chrome, Edge або Firefox.');
+  const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: o.quality === '1080' ? 8e6 : 5e6, audioBitsPerSecond: 128000 });
+  const chunks = []; rec.ondataavailable = e => e.data.size && chunks.push(e.data);
+  const stopped = new Promise(r => { rec.onstop = r; });
+
+  const vw = vid.videoWidth, vh = vid.videoHeight;
+  const cover = (dc, dw, dh) => {
+    const s = Math.max(dw / vw, dh / vh), w = vw * s, h = vh * s;
+    dc.drawImage(vid, (dw - w) / 2, (dh - h) / 2, w, h);
+  };
+
+  function frame() {
+    const t = Math.max(0, vid.currentTime - c.start);
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+    if (o.layout === 'blur') {
+      sctx.drawImage(vid, 0, 0, 0, 0); // no-op для сумісності
+      cover(sctx, small.width, small.height);
+      ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(small, 0, 0, W, H);
+      ctx.fillStyle = 'rgba(0,0,0,.25)'; ctx.fillRect(0, 0, W, H);
+      const s = Math.min(W / vw, H / vh), w = vw * s, h = vh * s;
+      ctx.drawImage(vid, (W - w) / 2, (H - h) / 2, w, h);
+    } else if (o.layout === 'crop') cover(ctx, W, H);
+    else ctx.drawImage(vid, 0, 0, W, H);
+    if (o.subtitles) {
+      const q = c.cues.find(q => t >= q.start && t < q.end);
+      if (q) drawSubtitle(ctx, W, H, q.text, o.subStyle, vertical);
+    }
+    return t;
+  }
+
+  rec.start(250);
+  await vid.play();
+  await new Promise(resolve => {
+    const tick = () => {
+      const t = frame(); onp(Math.min(1, t / c.duration));
+      if (vid.currentTime >= c.end || vid.ended || vid.paused) return resolve();
+      (vid.requestVideoFrameCallback ? vid.requestVideoFrameCallback.bind(vid) : requestAnimationFrame)(tick);
+    };
+    tick();
+  });
+  vid.pause(); rec.stop(); await stopped;
+  asrc.disconnect(); vid.removeAttribute('src'); vid.load();
+  return { blob: new Blob(chunks, { type: mime.split(';')[0] }), ext: mime.startsWith('video/mp4') ? 'mp4' : 'webm' };
+}
+
+/* ---------- запуск ---------- */
+$('form').addEventListener('submit', async e => {
+  e.preventDefault();
+  if (!file || running) return;
+  const key = $('apiKey').value.trim();
+  if (!key) return fail('Вкажіть Gemini API-ключ (його можна створити в Google AI Studio).');
+  resetResults(); running = true; $('go').disabled = true;
+
+  const minLen = clamp(parseInt($('minLen').value) || 20, 10, 170);
+  const o = {
+    count: clamp(parseInt($('count').value) || 0, 0, 15), minLen, maxLen: clamp(parseInt($('maxLen').value) || 60, minLen + 5, 180),
+    layout: $('layout').value, quality: $('quality').value, notes: $('notes').value.replace(/\s+/g, ' ').trim(),
+    subtitles: $('subs').checked, subLang: $('subLang').value, subStyle: $('subStyle').value, model: $('model').value
+  };
+
+  try {
+    sourceDur = $('srcVideo').duration || 0;
+    if (!sourceDur) throw new Error('Браузер не прочитав тривалість відео. Спробуйте mp4 (H.264).');
+    if (sourceDur > 45 * 60) throw new Error('Відео задовге: Gemini приймає до ~45 хвилин. Розріжте файл на частини.');
+
+    showProgress('Передаю відео в Gemini…', 2);
+    const part = file.size <= 50 * 1024 * 1024 ? await inlineVideo() : await uploadVideo(key, p => showProgress('Завантажую відео в Gemini…', 2 + p * 20));
+    showProgress('Gemini шукає найсильніші моменти…', 25);
+    const clips = await analyze(key, o, part);
+    if (!clips.length) throw new Error('Gemini не знайшов підходящих моментів. Змініть тривалість або додайте побажання.');
+
+    clips.forEach((c, i) => { c.index = i + 1; addMark(c); });
+    $('tlHint').textContent = 'Натисніть на відрізок, щоб перейти до шортса';
+
+    for (let i = 0; i < clips.length; i++) {
+      const c = clips[i], base = 35 + i / clips.length * 63, step = 63 / clips.length;
+      showProgress(`Монтую шортс ${i + 1} з ${clips.length}…`, base, true);
+      const out = await renderClip(c, o, f => showProgress(`Монтую шортс ${i + 1} з ${clips.length}…`, base + step * f, true));
+      addCard(c, out, o);
+    }
+    $('progress').hidden = true;
+  } catch (err) {
+    console.error(err); fail(friendly(err));
+  } finally { running = false; $('go').disabled = false; }
+});
+
+function addMark(c) {
+  const m = el('button', 'mark', String(c.index)); m.type = 'button'; m.id = 'mark-' + c.index;
+  m.style.left = (c.start / sourceDur * 100) + '%'; m.style.width = Math.max(0.6, c.duration / sourceDur * 100) + '%';
+  m.title = `${c.title} (${fmt(c.start)}–${fmt(c.end)})`;
+  m.addEventListener('click', () => {
+    document.querySelectorAll('.clip.on,.mark.on').forEach(n => n.classList.remove('on'));
+    m.classList.add('on'); $('srcVideo').currentTime = c.start;
+    const card = $('clip-' + c.index); if (card) { card.classList.add('on'); card.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
+  });
+  $('timeline').append(m);
+}
+
+function addCard(c, out, o) {
+  const url = URL.createObjectURL(out.blob);
+  const card = el('article', 'clip'); card.id = 'clip-' + c.index;
+  const v = el('video'); v.controls = true; v.preload = 'metadata'; v.playsInline = true; v.src = url;
+  if (o.layout === 'original') v.className = 'wide';
+  const body = el('div', 'body');
+  body.append(el('h3', null, c.title));
+  const meta = el('div', 'meta'); meta.append(el('span', 'score', String(c.score)));
+  meta.append(document.createTextNode(`${fmt(c.start)}–${fmt(c.end)} · ${Math.round(c.duration)} с${o.subtitles && c.cues.length ? ' · з субтитрами' : ''}`));
+  body.append(meta);
+  if (c.hook) body.append(el('p', 'why', 'Початок: ' + c.hook));
+  if (c.reason) body.append(el('p', 'why', c.reason));
+  const a = el('a', 'btn ghost', 'Завантажити'); a.href = url; a.download = `${c.index}-${slug(c.title)}.${out.ext}`;
+  body.append(a); card.append(v, body); $('clips').append(card);
+}
+</script>
+</body>
+</html>
