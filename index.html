@@ -513,8 +513,47 @@ async function getEnvelope() {
 
 function findPauses(c) {
   const a = Math.floor(c.start / WIN), b = Math.min(env.length, Math.ceil(c.end / WIN));
-  if (b - a < 10) return [];
-  const raw = env.subarray(a, b), v = new Float32Array(raw.length);
+  return pausesFromEnv(env.subarray(a, b), a * WIN);
+}
+
+// Запасний шлях для Safari/iPhone: слухаємо шортс у прискореному відтворенні через AnalyserNode.
+async function livePauses(c, onp) {
+  const vid = rv.vid, an = rv.an, buf = new Float32Array(an.fftSize);
+  await waitFor(() => vid.readyState >= 1 && vid.videoWidth > 0, 30000, 'Браузер не зміг завантажити відео.');
+  await seekTo(c.start);
+  if (actx.state === 'suspended') await actx.resume();
+  setAudio(0, 0);
+  vid.playbackRate = 2;
+  const samples = [];
+  try {
+    await withTimeout(vid.play(), 15000, 'Відео не запустилося.');
+    await new Promise((res, rej) => {
+      let lastT = vid.currentTime, lastMove = Date.now();
+      const id = setInterval(() => {
+        const t = vid.currentTime;
+        an.getFloatTimeDomainData(buf);
+        let s = 0; for (let i = 0; i < buf.length; i++) s += buf[i] * buf[i];
+        samples.push([t, Math.sqrt(s / buf.length)]);
+        onp(clamp((t - c.start) / (c.end - c.start), 0, 1));
+        if (t !== lastT) { lastT = t; lastMove = Date.now(); }
+        if (t >= c.end || vid.ended) { clearInterval(id); res(); }
+        else if (Date.now() - lastMove > 15000) { clearInterval(id); rej(new Error('відео зупинилося під час прослуховування')); }
+      }, 20);
+    });
+  } finally { vid.pause(); vid.playbackRate = 1; setAudio(1, 0); }
+  const n = Math.ceil((c.end - c.start) / WIN), v = new Float32Array(n);
+  let j = 0;
+  for (let k = 0; k < n; k++) {
+    const t = c.start + k * WIN;
+    while (j + 1 < samples.length && samples[j + 1][0] <= t) j++;
+    v[k] = samples.length ? samples[j][1] : 0;
+  }
+  return pausesFromEnv(v, c.start);
+}
+
+function pausesFromEnv(raw, t0) {
+  if (raw.length < 10) return [];
+  const v = new Float32Array(raw.length);
   for (let i = 0; i < raw.length; i++) v[i] = ((raw[i - 1] ?? raw[i]) + raw[i] + (raw[i + 1] ?? raw[i])) / 3;
   const sorted = Float32Array.from(v).sort();
   const p10 = sorted[Math.floor(sorted.length * 0.1)], p90 = sorted[Math.floor(sorted.length * 0.9)];
@@ -526,7 +565,7 @@ function findPauses(c) {
     const quiet = i < v.length && v[i] < thr;
     if (quiet && run < 0) run = i;
     if (!quiet && run >= 0) {
-      if (i - run >= minRun) out.push({ start: (a + run) * WIN + margin, end: (a + i) * WIN - margin });
+      if (i - run >= minRun) out.push({ start: t0 + run * WIN + margin, end: t0 + i * WIN - margin });
       run = -1;
     }
   }
@@ -558,6 +597,7 @@ function prepRender() {
     rv.asrc = actx.createMediaElementSource(rv.vid);
     rv.dest = actx.createMediaStreamDestination();
     rv.gain = actx.createGain(); rv.asrc.connect(rv.gain); rv.gain.connect(rv.dest);
+    rv.an = actx.createAnalyser(); rv.an.fftSize = 2048; rv.asrc.connect(rv.an);
     // генератор піпу для цензури
     rv.osc = actx.createOscillator(); rv.osc.type = 'sine'; rv.osc.frequency.value = 1000;
     rv.beep = actx.createGain(); rv.beep.gain.value = 0; rv.osc.connect(rv.beep); rv.beep.connect(rv.dest); rv.osc.start();
@@ -806,7 +846,20 @@ $('form').addEventListener('submit', async e => {
     if (o.silence) {
       showProgress('Шукаю паузи у звуці…', 30);
       try { await getEnvelope(); clips.forEach(c => { c.pauses = findPauses(c); }); }
-      catch (err) { console.warn(err); o.silence = false; warn('Не вдалося проаналізувати звук (файл завеликий або формат не підтримується), паузи не вирізано.'); }
+      catch (err) {
+        console.warn('decodeAudioData не спрацював, слухаю у прискореному відтворенні:', err);
+        try {
+          for (let i = 0; i < clips.length; i++) {
+            const label = `Слухаю шортс ${i + 1} з ${clips.length}, шукаю паузи…`;
+            showProgress(label, 30 + i / clips.length * 5, true);
+            clips[i].pauses = await livePauses(clips[i], f => showProgress(label, 30 + (i + f) / clips.length * 5, true));
+          }
+        } catch (err2) {
+          console.warn(err2); o.silence = false;
+          warn('Не вдалося знайти паузи: ' + (err2.message || err2) + '. Паузи не вирізано.');
+        }
+      }
+      if (o.silence && clips.every(c => !c.pauses.length)) warn('Пауз довших за 0,3 с не знайдено, тому нічого не вирізано.');
     }
 
     for (let i = 0; i < clips.length; i++) {
