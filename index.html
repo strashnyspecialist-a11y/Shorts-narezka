@@ -493,6 +493,7 @@ function normalize(list, o) {
 
 /* ---------- пошук пауз у звуці ---------- */
 const WIN = 0.02; // секунд на одне вікно
+let pauseStats = null;
 async function getEnvelope() {
   if (env) return env;
   const buf = await file.arrayBuffer();
@@ -557,9 +558,10 @@ function pausesFromEnv(raw, t0) {
   for (let i = 0; i < raw.length; i++) v[i] = ((raw[i - 1] ?? raw[i]) + raw[i] + (raw[i + 1] ?? raw[i])) / 3;
   const sorted = Float32Array.from(v).sort();
   const p10 = sorted[Math.floor(sorted.length * 0.1)], p90 = sorted[Math.floor(sorted.length * 0.9)];
-  if (p90 < 0.008) return [];
-  const thr = Math.max(0.004, p10 + (p90 - p10) * 0.1);
-  const minRun = Math.round(0.3 / WIN), margin = 0.07, out = [];
+  const thr = Math.max(0.003, p10 + (p90 - p10) * 0.2);
+  pauseStats = { quiet: p10, loud: p90, thr };
+  if (p90 < 0.002) return [];
+  const minRun = Math.round(0.22 / WIN), margin = 0.05, out = [];
   let run = -1;
   for (let i = 0; i <= v.length; i++) {
     const quiet = i < v.length && v[i] < thr;
@@ -597,7 +599,9 @@ function prepRender() {
     rv.asrc = actx.createMediaElementSource(rv.vid);
     rv.dest = actx.createMediaStreamDestination();
     rv.gain = actx.createGain(); rv.asrc.connect(rv.gain); rv.gain.connect(rv.dest);
+    // Safari обробляє AnalyserNode лише якщо він підключений до виходу, тому веду його в нульове підсилення
     rv.an = actx.createAnalyser(); rv.an.fftSize = 2048; rv.asrc.connect(rv.an);
+    rv.zero = actx.createGain(); rv.zero.gain.value = 0; rv.an.connect(rv.zero); rv.zero.connect(actx.destination);
     // генератор піпу для цензури
     rv.osc = actx.createOscillator(); rv.osc.type = 'sine'; rv.osc.frequency.value = 1000;
     rv.beep = actx.createGain(); rv.beep.gain.value = 0; rv.osc.connect(rv.beep); rv.beep.connect(rv.dest); rv.osc.start();
@@ -753,6 +757,7 @@ async function renderClip(c, o, onp) {
     if (err && err.name === 'NotAllowedError') throw new Error('Браузер заблокував автозапуск відео зі звуком. Відкрийте index.html як окрему сторінку у Chrome і спробуйте ще раз.');
     throw err;
   }
+  const startedAt = Date.now();
   try {
     await new Promise((resolve, reject) => {
       let lastT = vid.currentTime, lastMove = Date.now();
@@ -765,13 +770,15 @@ async function renderClip(c, o, onp) {
             if (sk) { seeking = true; seekAt = Date.now(); vid.currentTime = sk.end; }
           }
           if (ct !== lastT) { lastT = ct; lastMove = Date.now(); }
-          if (ct >= en || vid.ended) { clearInterval(timer); resolve(); }
+          if (ct >= en - 0.05 || vid.ended || (vid.paused && !seeking && Date.now() - startedAt > 1500)) { clearInterval(timer); resolve(); }
           else if (Date.now() - lastMove > 15000) { clearInterval(timer); reject(new Error('Відео зупинилося під час монтажу (не рухається вже 15 с). Спробуйте файл mp4 (H.264) або нижчу якість.')); }
         } catch (e) { clearInterval(timer); reject(e); }
       }, 33);
     });
   } finally { vid.onseeked = null; setAudio(1, 0); }
-  vid.pause(); if (rec.state !== 'inactive') rec.stop(); await stopped;
+  vid.pause();
+  if (rec.state !== 'inactive') { try { rec.requestData(); } catch {} rec.stop(); }
+  await Promise.race([stopped, sleep(4000)]);
   return { blob: new Blob(chunks, { type: mime.split(';')[0] }), ext: mime.startsWith('video/mp4') ? 'mp4' : 'webm', outDuration };
 }
 
@@ -859,7 +866,10 @@ $('form').addEventListener('submit', async e => {
           warn('Не вдалося знайти паузи: ' + (err2.message || err2) + '. Паузи не вирізано.');
         }
       }
-      if (o.silence && clips.every(c => !c.pauses.length)) warn('Пауз довших за 0,3 с не знайдено, тому нічого не вирізано.');
+      if (o.silence && clips.every(c => !c.pauses.length)) {
+        const s = pauseStats;
+        warn('Пауз довших за 0,2 с не знайдено, тому нічого не вирізано.' + (s ? ` Рівень звуку: тихо ${s.quiet.toFixed(4)}, гучно ${s.loud.toFixed(4)}, поріг ${s.thr.toFixed(4)}.` : ''));
+      }
     }
 
     for (let i = 0; i < clips.length; i++) {
