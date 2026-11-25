@@ -499,9 +499,16 @@ async function getEnvelope() {
   const buf = await file.arrayBuffer();
   const Ctx = window.OfflineAudioContext || window.webkitOfflineAudioContext;
   if (!Ctx) throw new Error('no offline audio');
-  const octx = new Ctx(1, 1, 8000);
-  const ab = await new Promise((res, rej) => { const p = octx.decodeAudioData(buf, res, rej); if (p && p.catch) p.catch(rej); });
-  const step = Math.round(8000 * WIN), len = Math.floor(ab.length / step), data = new Float32Array(len);
+  let ab = null, lastErr = null;
+  for (const rate of [8000, 22050, 44100]) {
+    try {
+      const octx = new Ctx(1, 1, rate);
+      ab = await new Promise((res, rej) => { const p = octx.decodeAudioData(buf.slice(0), res, rej); if (p && p.catch) p.catch(rej); });
+      if (ab) break;
+    } catch (e) { lastErr = e; }
+  }
+  if (!ab) throw lastErr || new Error('decodeAudioData не спрацював');
+  const step = Math.round(ab.sampleRate * WIN), len = Math.floor(ab.length / step), data = new Float32Array(len);
   const chans = []; for (let c = 0; c < ab.numberOfChannels; c++) chans.push(ab.getChannelData(c));
   for (let w = 0; w < len; w++) {
     let sum = 0;
@@ -524,7 +531,8 @@ async function livePauses(c, onp) {
   await seekTo(c.start);
   if (actx.state === 'suspended') await actx.resume();
   setAudio(0, 0);
-  vid.playbackRate = 2;
+  const apple = /iP(hone|ad|od)/.test(navigator.userAgent) || /Apple/.test(navigator.vendor || '');
+  vid.playbackRate = apple ? 1 : 2; // Safari не віддає звук у аналізатор при прискоренні
   const samples = [];
   try {
     await withTimeout(vid.play(), 15000, 'Відео не запустилося.');
@@ -770,7 +778,7 @@ async function renderClip(c, o, onp) {
             if (sk) { seeking = true; seekAt = Date.now(); vid.currentTime = sk.end; }
           }
           if (ct !== lastT) { lastT = ct; lastMove = Date.now(); }
-          if (ct >= en - 0.05 || vid.ended || (vid.paused && !seeking && Date.now() - startedAt > 1500)) { clearInterval(timer); resolve(); }
+          if (ct >= en - 0.05 || vid.ended) { clearInterval(timer); resolve(); }
           else if (Date.now() - lastMove > 15000) { clearInterval(timer); reject(new Error('Відео зупинилося під час монтажу (не рухається вже 15 с). Спробуйте файл mp4 (H.264) або нижчу якість.')); }
         } catch (e) { clearInterval(timer); reject(e); }
       }, 33);
@@ -779,6 +787,8 @@ async function renderClip(c, o, onp) {
   vid.pause();
   if (rec.state !== 'inactive') { try { rec.requestData(); } catch {} rec.stop(); }
   await Promise.race([stopped, sleep(4000)]);
+  const blobSize = chunks.reduce((a, b) => a + b.size, 0);
+  if (blobSize < 20000) throw new Error(`Запис вийшов порожнім (${blobSize} Б, ${chunks.length} фрагм., формат ${mime}). Спробуйте вимкнути «Мовчання» і «Превью» або відкрити сторінку в Chrome на комп'ютері.`);
   return { blob: new Blob(chunks, { type: mime.split(';')[0] }), ext: mime.startsWith('video/mp4') ? 'mp4' : 'webm', outDuration };
 }
 
@@ -868,7 +878,7 @@ $('form').addEventListener('submit', async e => {
       }
       if (o.silence && clips.every(c => !c.pauses.length)) {
         const s = pauseStats;
-        warn('Пауз довших за 0,2 с не знайдено, тому нічого не вирізано.' + (s ? ` Рівень звуку: тихо ${s.quiet.toFixed(4)}, гучно ${s.loud.toFixed(4)}, поріг ${s.thr.toFixed(4)}.` : ''));
+        warn('Пауз довших за 0,2 с не знайдено, тому нічого не вирізано.' + (s ? ` Рівень звуку: тихо ${s.quiet.toFixed(4)}, гучно ${s.loud.toFixed(4)}, поріг ${s.thr.toFixed(4)}. Аудіо: ${actx ? actx.state : 'немає'}.` : '') + (s && s.loud === 0 ? ' Браузер не передав звук в аналізатор.' : ''));
       }
     }
 
