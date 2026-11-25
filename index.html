@@ -358,6 +358,31 @@ function normalize(list, o) {
 }
 
 /* ---------- монтаж у браузері ---------- */
+const rv = {};
+function waitFor(cond, ms, msg) {
+  return new Promise((res, rej) => {
+    const t0 = Date.now();
+    const id = setInterval(() => {
+      if (cond()) { clearInterval(id); res(); }
+      else if (Date.now() - t0 > ms) { clearInterval(id); rej(new Error(msg)); }
+    }, 60);
+  });
+}
+// Має викликатися синхронно в обробнику натискання, поки браузер дозволяє відтворення (критично для iOS).
+function prepRender() {
+  if (!rv.vid) {
+    const v = document.createElement('video');
+    v.playsInline = true; v.setAttribute('playsinline', ''); v.setAttribute('webkit-playsinline', ''); v.preload = 'auto';
+    v.style.cssText = 'position:fixed;left:0;bottom:0;width:2px;height:2px;opacity:.01;pointer-events:none';
+    document.body.append(v); rv.vid = v;
+  }
+  actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+  if (actx.resume) actx.resume();
+  if (!rv.dest) { rv.asrc = actx.createMediaElementSource(rv.vid); rv.dest = actx.createMediaStreamDestination(); rv.asrc.connect(rv.dest); }
+  if (rv.vid.dataset.src !== srcUrl) { rv.vid.dataset.src = srcUrl; rv.vid.src = srcUrl; }
+  const p = rv.vid.play(); if (p && p.then) p.then(() => rv.vid.pause()).catch(() => {});
+}
+
 function withTimeout(p, ms, msg) {
   return Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(msg)), ms))]);
 }
@@ -400,9 +425,8 @@ function drawSubtitle(ctx, W, H, text, style, vertical) {
 }
 
 async function renderClip(c, o, onp) {
-  const vid = document.createElement('video');
-  vid.src = srcUrl; vid.playsInline = true; vid.preload = 'auto';
-  await withTimeout(new Promise((res, rej) => { vid.onloadedmetadata = res; vid.onerror = () => rej(new Error('Браузер не може відтворити це відео. Спробуйте mp4 (H.264).')); }), 20000, 'Браузер не зміг завантажити відео для монтажу.');
+  const vid = rv.vid, dest = rv.dest;
+  await waitFor(() => vid.readyState >= 1 && vid.videoWidth > 0, 30000, 'Браузер не зміг завантажити відео для монтажу.');
 
   const vertical = o.layout !== 'original';
   let W, H;
@@ -416,15 +440,18 @@ async function renderClip(c, o, onp) {
   const small = document.createElement('canvas'); small.width = 36; small.height = Math.round(36 * H / W);
   const sctx = small.getContext('2d');
 
-  if (Math.abs(vid.currentTime - c.start) > 0.05) {
-    await withTimeout(new Promise(r => { vid.onseeked = r; vid.currentTime = c.start; }), 20000, 'Не вдалося перейти до потрібного місця у відео.');
+  vid.pause();
+  const seeked = () => vid.readyState >= 2 && Math.abs(vid.currentTime - c.start) < 0.3;
+  vid.currentTime = c.start;
+  try { await waitFor(seeked, 6000, 'seek'); }
+  catch {
+    // iOS/Safari: без відтворення дані не підвантажуються. Запускаємо, чекаємо і перемотуємо знову.
+    try { await vid.play(); } catch {}
+    await waitFor(() => vid.readyState >= 2, 15000, 'Не вдалося підвантажити відео. На iPhone спробуйте менший файл або відкрийте сторінку в Chrome на комп\'ютері.');
+    vid.pause(); vid.currentTime = c.start;
+    await waitFor(seeked, 10000, 'Не вдалося перейти до потрібного місця у відео. На iPhone спробуйте менший файл або відкрийте сторінку в Chrome на комп\'ютері.');
   }
-
-  actx = actx || new (window.AudioContext || window.webkitAudioContext)();
   if (actx.state === 'suspended') await actx.resume();
-  const asrc = actx.createMediaElementSource(vid);
-  const dest = actx.createMediaStreamDestination();
-  asrc.connect(dest);
 
   const stream = cv.captureStream(30);
   dest.stream.getAudioTracks().forEach(t => stream.addTrack(t));
@@ -477,7 +504,6 @@ async function renderClip(c, o, onp) {
     }, 33);
   });
   vid.pause(); if (rec.state !== 'inactive') rec.stop(); await stopped;
-  asrc.disconnect(); vid.removeAttribute('src'); vid.load();
   return { blob: new Blob(chunks, { type: mime.split(';')[0] }), ext: mime.startsWith('video/mp4') ? 'mp4' : 'webm' };
 }
 
@@ -488,6 +514,7 @@ $('form').addEventListener('submit', async e => {
   const key = $('apiKey').value.trim();
   if (!key) return fail('Вкажіть Gemini API-ключ (його можна створити в Google AI Studio).');
   resetResults(); running = true; $('go').disabled = true;
+  try { prepRender(); } catch (err) { console.warn(err); }
 
   const minLen = clamp(parseInt($('minLen').value) || 20, 10, 170);
   const o = {
